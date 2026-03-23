@@ -1,11 +1,10 @@
 import argparse
 import os
-from tabnanny import verbose
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from prompts import system_prompt
-from call_function import available_functions
+from call_function import available_functions, call_function
 
 def main():
     load_dotenv()
@@ -13,6 +12,7 @@ def main():
     if not api_key:
         print("GEMINI_API_KEY not found in environment variables.")
         return
+
     client = genai.Client(api_key=api_key)
 
     parser = argparse.ArgumentParser(description="ChatBot")
@@ -24,41 +24,46 @@ def main():
 
     response = client.models.generate_content(
         model="gemini-2.5-flash",
-        contents = messages,
-        config = types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
+        contents=messages,
+        config=types.GenerateContentConfig(
+            tools=[available_functions],
+            system_instruction=system_prompt
+        ),
     )
 
     if response.function_calls:
-        function_results = []
+        messages.append(response.candidates[0].content)
 
         for function_call in response.function_calls:
-            function_call_result = call_function(function_call, verbose=verbose)
+            function_call_result = call_function(function_call, verbose=args.verbose)
 
             if not function_call_result.parts:
                 raise Exception("No parts in function call result")
-
             if function_call_result.parts[0].function_response is None:
                 raise Exception("No function response in parts")
-
             if function_call_result.parts[0].function_response.response is None:
                 raise Exception("No response in function response")
 
-            function_results.append(function_call_result.parts[0])
-
-            if verbose:
+            if args.verbose:
                 print(f"-> {function_call_result.parts[0].function_response.response}")
-    else:
-        print(response.text)
 
-    if response.usage_metadata == None:
-        raise RuntimeError("Response does not contain usage metadata.")
+            messages.append(function_call_result)
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=messages,
+            config=types.GenerateContentConfig(
+                tools=[available_functions],
+                system_instruction=system_prompt
+            ),
+        )
 
     if args.verbose:
         print(f"User prompt: {args.user_prompt}")
         print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
         print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
-    print(f"Response:\n{response.text}")
 
+    print(f"Response:\n{response.text}")
 
 if __name__ == "__main__":
     main()
