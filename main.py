@@ -1,5 +1,6 @@
 import argparse
 import os
+from tabnanny import verbose
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -28,8 +29,24 @@ def main():
     )
 
     if response.function_calls:
+        function_results = []
+
         for function_call in response.function_calls:
-            print(f"Calling function: {function_call.name}({function_call.args})")
+            function_call_result = call_function(function_call, verbose=verbose)
+
+            if not function_call_result.parts:
+                raise Exception("No parts in function call result")
+
+            if function_call_result.parts[0].function_response is None:
+                raise Exception("No function response in parts")
+
+            if function_call_result.parts[0].function_response.response is None:
+                raise Exception("No response in function response")
+
+            function_results.append(function_call_result.parts[0])
+
+            if verbose:
+                print(f"-> {function_call_result.parts[0].function_response.response}")
     else:
         print(response.text)
 
